@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "github.com/Ferriem/grpc/hello";
+option go_package = "github.com/Ferriem/grpc/code/HelloWorld/proto/hello";
 package hello;
 
 service Hello {

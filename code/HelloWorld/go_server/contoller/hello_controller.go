@@ -1,8 +1,9 @@
 package contoller
 
 import (
-	"Hello_World/proto/hello"
 	"fmt"
+
+	"github.com/Ferriem/grpc/code/HelloWorld/proto/hello"
 
 	"golang.org/x/net/context"
 )
