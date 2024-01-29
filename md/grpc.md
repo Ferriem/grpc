@@ -105,7 +105,7 @@ go get -u google.golang.org/grpc
 ```protobuf
 syntax = "proto3";
 
-option go_package = "github.com/User/grpc/hello";
+option go_package = "github.com/Ferriem/grpc/code/HelloWorld/hello";
 package hello;
 
 service Hello {
@@ -146,4 +146,158 @@ Open the directory where `.proto` lies.
 
 - Implementing the service interface generated from our service definition.
 - Running a gRPC server to listen for requests from clients and dispatch them to the right service implementation.
+
+```go
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"net"
+
+	pb "github.com/Ferriem/grpc/code/HelloWorld/hello"
+	"google.golang.org/grpc"
+)
+
+var (
+	port = flag.Int("port", 50051, "The server port")
+)
+
+type server struct {
+	pb.UnimplementedHelloServer
+}
+
+func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
+	log.Printf("Received: %v", in.GetName())
+	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
+}
+
+func (s *server) LotsOfReplies(in *pb.HelloRequest, stream pb.Hello_LotsOfRepliesServer) error {
+	log.Printf("Received: %v", in.GetName())
+	for i := 0; i < 10; i++ {
+		stream.Send(&pb.HelloReply{Message: "Hello " + in.GetName()})
+	}
+	return nil
+}
+
+func main() {
+	flag.Parse()
+	listen, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
+	if err != nil {
+		log.Fatalf("Failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	pb.RegisterHelloServer(s, &server{})
+	log.Printf("Starting server on port %d", *port)
+	if err := s.Serve(listen); err != nil {
+		log.Fatalf("Failed to serve: %v", err)
+	}
+}
+```
+
+- `port = flag.Int("port", 50051, "The server port")` set the port with default value **50051**, or we can specify the port by `./program -port 8080`
+
+  `flag.Int` takes three arguments.
+
+  - The name of the flag. ("**port**")
+  - The defalue value ('**50051**')
+  - A description of the flag ("**The server port**")
+
+  ```sh
+  ~/ ./program -h
+  	-port int
+          The server port (default 50051)
+  ```
+
+- `type server struct`: A struct that implements the methods defined in your gRPC service.
+
+  - `pb.UnimplementedHelloServer` means if you haven't implemented particular method in `server`. gRPC will automatically use the default behavior provided by `UnimplementedHelloServer`
+  - `SayHello` and `LotsOfReplies` are particular methods.
+
+- `pb.Register[ServiceName]Server(s, &server{})`: register the service implementatio with the gRPC server.
+
+- `s.Serve()`
+
+  - **Blocking Call**: it will not return until an error occurs or until the server is stopped.
+
+  - **Listening for Requests**: continuously listen for incoming gRPC requests on the specified listener.
+
+  - **Handling Requests**: When a request comes in, the server will handle it by invoking the appropriate gRPC service method based on the RPC requested by the client.
+
+
+### Creating the client
+
+```go
+package main
+
+import (
+	"context"
+	"flag"
+	"io"
+	"log"
+
+	pb "github.com/Ferriem/grpc/code/HelloWorld/hello"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+const (
+	defaultName = "user"
+)
+
+var (
+	addr = flag.String("addr", "localhost:50051", "the address to connect to")
+	name = flag.String("name", defaultName, "the name to hello")
+)
+
+func main() {
+	flag.Parse()
+
+	conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatal("Failed to dial server:", err)
+	}
+	defer conn.Close()
+
+	c := pb.NewHelloClient(conn)
+
+	res, err := c.SayHello(context.Background(), &pb.HelloRequest{Name: *name})
+
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+
+	log.Printf("SayHello: %s", res.GetMessage())
+
+	stream, err := c.LotsOfReplies(context.Background(), &pb.HelloRequest{Name: "ferriem"})
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+
+	for {
+		res, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal("Failed to recv:", err)
+		}
+		log.Printf("LotsOfReplies: %s", res.GetMessage())
+	}
+
+}
+```
+
+- `grpc.Dial`: create a gRPC channel to communicate with the server. 
+- `pb.New[Service name]Client`: Once the gRPC channel is setup, we need a client stub to perform RPCs.
+- `stream.Recv()` atomically sort the coming message.
+
+### Try
+
+```sh
+~/ go run go_client/server.go
+~/ go run go_server/client.go
+```
 
