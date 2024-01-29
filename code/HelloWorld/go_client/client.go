@@ -55,4 +55,44 @@ func main() {
 		log.Printf("LotsOfReplies: %s", res.GetMessage())
 	}
 
+	var names = []string{"greet1", "greet2", "greet3", "greet4", "greet5"}
+	stream2, err := c.LotsOfGreetings(context.Background())
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+	for _, name := range names {
+		stream2.Send(&pb.HelloRequest{Name: name})
+	}
+	reply, err := stream2.CloseAndRecv()
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+	log.Printf("LotsOfGreetings: %s", reply.GetMessage())
+
+	var notes = []string{"note1", "note2", "note3", "note4", "note5"}
+	stream3, err := c.BidiHello(context.Background())
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+	waitc := make(chan struct{})
+	go func() {
+		for {
+			in, err := stream3.Recv()
+			if err == io.EOF {
+				close(waitc)
+				//waitc <- struct{}{}
+				return
+			}
+			if err != nil {
+				log.Fatal("Failed to recv:", err)
+			}
+			log.Printf("BidiHello: %s", in.GetMessage())
+		}
+	}()
+	for _, note := range notes {
+		stream3.Send(&pb.HelloRequest{Name: note})
+	}
+	stream3.CloseSend()
+	<-waitc
+
 }

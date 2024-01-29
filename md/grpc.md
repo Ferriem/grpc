@@ -114,6 +114,12 @@ service Hello {
 
     //LotsOfReplies method
     rpc LotsOfReplies (HelloRequest) returns (stream HelloReply) {}
+
+    //LotsOfGreetings method
+    rpc LotsOfGreetings (stream HelloRequest) returns (HelloReply) {}
+
+    //BidiHello method
+    rpc BidiHello (stream HelloRequest) returns (stream HelloReply) {}
 }
 
 message HelloRequest {
@@ -154,6 +160,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 
@@ -177,9 +184,36 @@ func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloRe
 func (s *server) LotsOfReplies(in *pb.HelloRequest, stream pb.Hello_LotsOfRepliesServer) error {
 	log.Printf("Received: %v", in.GetName())
 	for i := 0; i < 10; i++ {
-		stream.Send(&pb.HelloReply{Message: "Hello " + in.GetName()})
+		stream.Send(&pb.HelloReply{Message: "Hello " + in.GetName() + fmt.Sprintf(" %d", i)})
 	}
 	return nil
+}
+
+func (s *server) LotsOfGreetings(stream pb.Hello_LotsOfGreetingsServer) error {
+	for {
+		in, err := stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(&pb.HelloReply{Message: "Hello " + in.GetName()})
+		}
+		if err != nil {
+			return err
+		}
+		log.Printf("Received: %v", in.GetName())
+	}
+}
+
+func (s *server) BidiHello(stream pb.Hello_BidiHelloServer) error {
+	for {
+		in, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		log.Printf("Received: %v", in.GetName())
+		stream.Send(&pb.HelloReply{Message: "Hello " + in.GetName()})
+	}
 }
 
 func main() {
@@ -195,6 +229,7 @@ func main() {
 		log.Fatalf("Failed to serve: %v", err)
 	}
 }
+
 ```
 
 - `port = flag.Int("port", 50051, "The server port")` set the port with default value **50051**, or we can specify the port by `./program -port 8080`
@@ -225,6 +260,50 @@ func main() {
   - **Listening for Requests**: continuously listen for incoming gRPC requests on the specified listener.
 
   - **Handling Requests**: When a request comes in, the server will handle it by invoking the appropriate gRPC service method based on the RPC requested by the client.
+  
+- `Server-Side method`: 
+
+  - **Unary RPC** `func (s *MyService) MyMethod(ctx context.Context, request *MyRequest) (*MyResponse, error)`
+
+    - `ctx`  containing deadline, cancellation signals, etc.
+    - `request` the signle request parameter sent by the client
+
+  - **Server-Side Streaming RPC** `func (s *MyService) MyMethod(request *MyRequest, stream MyService_MyMethodServer) error`
+
+    - `request`
+    - `stream` the server-streaming RPC is represented by a stream that the server can **write** multiple responses to.
+
+    ```go
+    type <ServiceName>_FooServer interface {
+    	Send(*MsgA) error
+    	grpc.ServerStream
+    }
+    ```
+
+  - **Client-Side Streaming RPC**  `func (s *MyService) MyMethod(stream MyService_MyMethodServer) error`
+
+    - `stream` the server-streaming RPC is represented by a stream that the server can **read** multiple responses to.
+
+    ```go
+    type <ServiceName>_FooServer interface {
+    	SendAndClose(*MsgA) error
+    	Recv() (*MsgB, error)
+    	grpc.ServerStream
+    }
+    ```
+
+  - **Bidirectional Streaming RPC** `func (s *MyService) MyMethod(stream MyService_MyMethodServer) error`
+
+    - `stream` both read and write
+
+    ```go
+    type <ServiceName>_FooServer interface {
+    	Send(*MsgA) error
+    	Recv() (*MsgB, error)
+    	grpc.ServerStream
+    }
+    ```
+
 
 
 ### Creating the client
@@ -287,12 +366,88 @@ func main() {
 		log.Printf("LotsOfReplies: %s", res.GetMessage())
 	}
 
+	var names = []string{"greet1", "greet2", "greet3", "greet4", "greet5"}
+	stream2, err := c.LotsOfGreetings(context.Background())
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+	for _, name := range names {
+		stream2.Send(&pb.HelloRequest{Name: name})
+	}
+	reply, err := stream2.CloseAndRecv()
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+	log.Printf("LotsOfGreetings: %s", reply.GetMessage())
+
+	var notes = []string{"note1", "note2", "note3", "note4", "note5"}
+	stream3, err := c.BidiHello(context.Background())
+	if err != nil {
+		log.Fatal("Failed to say hello:", err)
+	}
+	waitc := make(chan struct{})
+	go func() {
+		for {
+			in, err := stream3.Recv()
+			if err == io.EOF {
+				close(waitc)
+				return
+			}
+			if err != nil {
+				log.Fatal("Failed to recv:", err)
+			}
+			log.Printf("BidiHello: %s", in.GetMessage())
+		}
+	}()
+	for _, note := range notes {
+		stream3.Send(&pb.HelloRequest{Name: note})
+	}
+	stream3.CloseSend()
+	<-waitc
+
 }
+
 ```
 
 - `grpc.Dial`: create a gRPC channel to communicate with the server. 
+
 - `pb.New[Service name]Client`: Once the gRPC channel is setup, we need a client stub to perform RPCs.
+
 - `stream.Recv()` atomically sort the coming message.
+
+- `Client-Side Method`
+
+  - **Unary Methods** `func YourMethod(ctx context.Context, in *YourRequest) (*YourResponse, error)`
+
+  - **Server-Side Streaming RPC** `func YourMethod(ctx context.Context, in *YourRequest, opts ...grpc.CallOption) (YourService_YourMethodClient, error)`
+
+    ```go
+    type <ServiceName>_FooClient interface {
+    	Recv() (*MsgB, error)
+    	grpc.ClientStream
+    }
+    ```
+
+  - **Client-Side Streaming RPC** `func YourMethod(ctx context.Context, opts ...grpc.CallOption) (YourService_YourMethodClient, error)`
+
+    ```go
+    type <ServiceName>_FooClient interface {
+    	Send(*MsgA) error
+    	CloseAndRecv() (*MsgB, error)
+    	grpc.ClientStream
+    }
+    ```
+
+  - **Bidirectional Streaming RPC** `func YourMethod(ctx context.Context, opts ...grpc.CallOption) (YourService_YourMethodClient, error)`
+
+    ```go
+    type <ServiceName>_FooClient interface {
+    	Send(*MsgA) error
+    	Recv() (*MsgB, error)
+    	grpc.ClientStream
+    }
+    ```
+
 
 ### Try
 

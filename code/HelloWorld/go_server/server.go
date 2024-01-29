@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 
@@ -30,6 +31,33 @@ func (s *server) LotsOfReplies(in *pb.HelloRequest, stream pb.Hello_LotsOfReplie
 		stream.Send(&pb.HelloReply{Message: "Hello " + in.GetName() + fmt.Sprintf(" %d", i)})
 	}
 	return nil
+}
+
+func (s *server) LotsOfGreetings(stream pb.Hello_LotsOfGreetingsServer) error {
+	for {
+		in, err := stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(&pb.HelloReply{Message: "Hello " + in.GetName()})
+		}
+		if err != nil {
+			return err
+		}
+		log.Printf("Received: %v", in.GetName())
+	}
+}
+
+func (s *server) BidiHello(stream pb.Hello_BidiHelloServer) error {
+	for {
+		in, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		log.Printf("Received: %v", in.GetName())
+		stream.Send(&pb.HelloReply{Message: "Hello " + in.GetName()})
+	}
 }
 
 func main() {

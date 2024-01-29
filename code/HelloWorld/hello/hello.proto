@@ -9,6 +9,12 @@ service Hello {
 
     //LotsOfReplies method
     rpc LotsOfReplies (HelloRequest) returns (stream HelloReply) {}
+
+    //LotsOfGreetings method
+    rpc LotsOfGreetings (stream HelloRequest) returns (HelloReply) {}
+
+    //BidiHello method
+    rpc BidiHello (stream HelloRequest) returns (stream HelloReply) {}
 }
 
 message HelloRequest {
