@@ -456,3 +456,33 @@ func main() {
 ~/ go run go_server/client.go
 ```
 
+## ALTS
+
+gRPC authentication using Application Layer Transport Security
+
+Note that ALTS is fully functional if the application runs on [Compute Engine](https://cloud.google.com/compute) or [Google Kubernetes Engine (GKE)](https://cloud.google.com/kubernetes-engine)
+
+### Client
+
+```go
+import (
+  "google.golang.org/grpc"
+  "google.golang.org/grpc/credentials/alts"
+)
+
+altsTC := alts.NewClientCreds(alts.DefaultClientOptions())
+conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(altsTC))
+```
+
+### Server
+
+```go
+import (
+  "google.golang.org/grpc"
+  "google.golang.org/grpc/credentials/alts"
+)
+
+altsTC := alts.NewServerCreds(alts.DefaultServerOptions())
+server := grpc.NewServer(grpc.Creds(altsTC))
+```
+
